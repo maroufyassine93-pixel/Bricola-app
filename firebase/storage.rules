@@ -1,0 +1,70 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+
+    function signedIn() { return request.auth != null; }
+    function isOwner(uid) { return signedIn() && request.auth.uid == uid; }
+
+    // Verification docs (chamber card photo/PDF): owner-write, admin-read only.
+    // NEVER publicly readable.
+    match /craftsmen/{uid}/verification/{file} {
+      allow read: if isOwner(uid);
+      allow write: if isOwner(uid)
+        && request.resource.size < 10 * 1024 * 1024
+        && request.resource.contentType.matches('image/.*|application/pdf');
+    }
+
+    // Portfolio photos: public read (shown on profiles), owner write.
+    match /craftsmen/{uid}/portfolio/{file} {
+      allow read: if true;
+      allow write: if isOwner(uid)
+        && request.resource.size < 5 * 1024 * 1024
+        && request.resource.contentType.matches('image/.*');
+    }
+
+    // Booking problem photos: booking parties only (not every user).
+    match /bookings/{bookingId}/{file} {
+      function isParty() {
+        let booking = firestore.get(
+          /databases/(default)/documents/bookings/$(bookingId)).data;
+        return signedIn() && (booking.customerId == request.auth.uid
+          || firestore.get(
+            /databases/(default)/documents/users/$(request.auth.uid)
+          ).data.craftsmanId == booking.craftsmanId);
+      }
+      allow read: if isParty();
+      allow write: if isParty()
+        && request.resource.size < 5 * 1024 * 1024
+        && request.resource.contentType.matches('image/.*');
+    }
+
+    // Review work photos: public read, signed-in write.
+    match /reviews/{file} {
+      allow read: if true;
+      allow write: if signedIn()
+        && request.resource.size < 5 * 1024 * 1024
+        && request.resource.contentType.matches('image/.*');
+    }
+
+    // Chat attachments (images + voice): participants ONLY.
+    match /chats/{chatId}/{file=**} {
+      function isParticipant() {
+        return signedIn() && request.auth.uid in firestore.get(
+          /databases/(default)/documents/chats/$(chatId)
+        ).data.participants;
+      }
+      allow read: if isParticipant();
+      allow write: if isParticipant()
+        && request.resource.size < 15 * 1024 * 1024
+        && request.resource.contentType.matches('image/.*|audio/.*');
+    }
+
+    // Avatars: public read, owner write.
+    match /users/{uid}/avatar.jpg {
+      allow read: if true;
+      allow write: if isOwner(uid)
+        && request.resource.size < 2 * 1024 * 1024
+        && request.resource.contentType.matches('image/.*');
+    }
+  }
+}

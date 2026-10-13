@@ -1,0 +1,43 @@
+name: bricola
+description: "بريكولا — سوق جزائري يربط الزبائن بالحرفيين (Flutter + Firebase)"
+publish_to: "none"
+version: 0.1.0+1
+
+environment:
+  sdk: ">=3.2.0 <4.0.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+  flutter_localizations:
+    sdk: flutter
+
+  # Firebase (v5 train — fixes PigeonUserDetails cast bug in auth 4.x)
+  firebase_core: ^3.15.2
+  firebase_auth: ^5.7.0
+  cloud_firestore: ^5.6.12
+  firebase_storage: ^12.4.10
+  firebase_messaging: ^15.2.10
+
+  # Features
+  image_picker: ^1.0.7
+  file_picker: ^11.0.3 # chamber card / certificate as PDF (v11: no v1 embedding; static FilePicker.pickFiles API)
+  geolocator: ^10.1.0
+  url_launcher: ^6.2.4
+  record: ^6.1.0 # voice messages in chat (AudioRecorder API)
+  audioplayers: ^6.0.0 # voice message playback
+  share_plus: ^10.0.2 # referral invite sharing
+  provider: ^6.1.1
+
+  # Utils
+  intl: ^0.20.3 # must match flutter_localizations (SDK)
+  uuid: ^4.3.3
+  crypto: ^3.0.6 # SHA-256 for the admin PIN (never stored plaintext)
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^3.0.1
+
+flutter:
+  uses-material-design: true

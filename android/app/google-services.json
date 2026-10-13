@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "474049867857",
+    "project_id": "bricola-6a682",
+    "storage_bucket": "bricola-6a682.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:474049867857:android:f9f78f540c3c66ba838870",
+        "android_client_info": {
+          "package_name": "com.bricola.app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyA_DFtX3zkHEEFga7U65PTWj03yrR1CJTE"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

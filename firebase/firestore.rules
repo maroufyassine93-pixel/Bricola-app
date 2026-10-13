@@ -1,0 +1,151 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function signedIn() { return request.auth != null; }
+    function isOwner(uid) { return signedIn() && request.auth.uid == uid; }
+    // THE admin: tied exclusively to one email OR one phone number.
+    // Nobody else can ever satisfy this — not via the app, not via
+    // console edits. Both are checked so login can switch between
+    // email (temporary) and phone (Blaze) without locking the admin out.
+    function isAdmin() {
+      return signedIn() && (
+        request.auth.token.email == 'maroufyassine93@gmail.com' ||
+        request.auth.token.phone_number == '+213675404636'
+      );
+    }
+
+    // ── users ──────────────────────────────────────────────
+    // PRIVATE: readable ONLY by the owner or the admin. There is no
+    // public read — phonePrivate/email must never leak (masked phone
+    // until booking acceptance depends on this).
+    match /users/{uid} {
+      allow read: if isOwner(uid) || isAdmin();
+      allow create: if isOwner(uid) || isAdmin();
+      // Owner may only touch their own profile fields — never role,
+      // craftsmanId or createdAt (those are admin/backend-written).
+      allow update: if isAdmin() || (isOwner(uid)
+        && request.resource.data.diff(resource.data).affectedKeys()
+          .hasOnly(['displayName', 'phone', 'phonePrivate', 'email',
+                    'fcmTokens']));
+    }
+
+    // ── craftsmen ──────────────────────────────────────────
+    match /craftsmen/{id} {
+      // Public listing: only approved profiles.
+      allow read: if resource.data.status == 'approved' || isAdmin() ||
+        (signedIn() && resource.data.userId == request.auth.uid);
+      // Application: a signed-in user creates their own file, always pending
+      // and never self-verified.
+      allow create: if signedIn()
+        && request.resource.data.userId == request.auth.uid
+        && request.resource.data.status == 'pending'
+        && request.resource.data.chamberVerified == false;
+      // Owner may update their file but CANNOT flip verification/status.
+      allow update: if (signedIn() && resource.data.userId == request.auth.uid
+          && request.resource.data.chamberVerified == resource.data.chamberVerified
+          && request.resource.data.status == resource.data.status)
+        || isAdmin();
+      allow delete: if isAdmin();
+    }
+
+    // ── bookings ───────────────────────────────────────────
+    match /bookings/{id} {
+      function callerCraftsmanId() {
+        return get(/databases/$(database)/documents/users/$(request.auth.uid)).data.craftsmanId;
+      }
+      function isCustomer() {
+        return signedIn() && resource.data.customerId == request.auth.uid;
+      }
+      function isCraftsman() {
+        return signedIn() && callerCraftsmanId() == resource.data.craftsmanId;
+      }
+      function isParty() { return isCustomer() || isCraftsman(); }
+      // Craftsman accepting: reveals their OWN phone. contactPhone must
+      // equal the caller's own phonePrivate — no arbitrary numbers.
+      function isReveal() {
+        return isCraftsman()
+          && resource.data.contactRevealed == false
+          && request.resource.data.contactRevealed == true
+          && request.resource.data.contactPhone ==
+             get(/databases/$(database)/documents/users/$(request.auth.uid)).data.phonePrivate
+          && request.resource.data.diff(resource.data).affectedKeys()
+               .hasOnly(['contactRevealed', 'contactPhone', 'status', 'updatedAt']);
+      }
+      allow read: if isParty() || isAdmin();
+      allow create: if signedIn()
+        && request.resource.data.customerId == request.auth.uid
+        && request.resource.data.contactRevealed == false
+        && request.resource.data.paidConfirmed == false;
+      // Parties may change status; only the customer may confirm payment;
+      // only the craftsman may reveal (their own) phone on accept.
+      allow update: if isAdmin()
+        || (isParty() && request.resource.data.diff(resource.data)
+              .affectedKeys().hasOnly(['status', 'updatedAt']))
+        || (isCustomer() && request.resource.data.diff(resource.data)
+              .affectedKeys().hasOnly(['paidConfirmed', 'updatedAt'])
+            && request.resource.data.paidConfirmed == true)
+        || isReveal();
+      allow delete: if isAdmin();
+    }
+
+    // ── reviews — work photo OPTIONAL (until Storage is live) ───
+    match /reviews/{id} {
+      allow read: if true;
+      allow create: if signedIn()
+        && request.resource.data.customerId == request.auth.uid
+        && request.resource.data.rating >= 1
+        && request.resource.data.rating <= 5;
+      allow update, delete: if isAdmin();
+    }
+
+    // ── chats ──────────────────────────────────────────────
+    match /chats/{chatId} {
+      function isParticipant() {
+        return signedIn() && request.auth.uid in resource.data.participants;
+      }
+      allow read: if isParticipant() || isAdmin();
+      allow create: if signedIn()
+        && request.auth.uid in request.resource.data.participants;
+      allow update: if isParticipant() || isAdmin();
+
+      match /messages/{msgId} {
+        allow read: if isParticipant() || isAdmin();
+        allow create: if isParticipant()
+          && request.resource.data.senderId == request.auth.uid;
+      }
+    }
+
+    // ── notifications ──────────────────────────────────────
+    match /notifications/{id} {
+      allow read: if signedIn() && resource.data.userId == request.auth.uid;
+      allow update: if signedIn()
+        && resource.data.userId == request.auth.uid
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['read']);
+      allow create, delete: if isAdmin();
+    }
+
+    // ── referrals ──────────────────────────────────────────
+    match /referrals/{id} {
+      allow read: if signedIn()
+        && (resource.data.ownerId == request.auth.uid
+          || resource.data.invitedUserId == request.auth.uid)
+        || isAdmin();
+      allow create: if signedIn()
+        && request.resource.data.invitedUserId == request.auth.uid;
+      // status / rewardGranted flips are backend-only (Cloud Function).
+      allow update, delete: if isAdmin();
+    }
+
+    // ── rewards ledger — backend-written, read-only for users ──
+    match /rewards/{id} {
+      allow read: if signedIn() && resource.data.userId == request.auth.uid || isAdmin();
+      allow create, update, delete: if isAdmin();
+    }
+
+    // ── config — admin-only (admin PIN, feature flags…) ──
+    match /config/{docId} {
+      allow read, write: if isAdmin();
+    }
+  }
+}
